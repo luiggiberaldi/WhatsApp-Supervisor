@@ -11,7 +11,7 @@ import {
   normalizeEvolutionWebhook, 
   sendTextMessage 
 } from "./server/lib/evolution.js";
-import { supabase } from "./server/lib/supabase.js";
+import { supabase, supabaseRole } from "./server/lib/supabase.js";
 
 const PORT = 3000;
 
@@ -44,10 +44,17 @@ async function processWebhookMessage(payload: any): Promise<{ success: boolean; 
     const msg = err?.message?.toLowerCase() || "";
     return ["invalid api key", "invalid authentication", "unauthorized", "forbidden", "jwt expired"].some(e => msg.includes(e));
   };
-  const localFallback = () => {
+  const localFallback = (step?: string) => {
     supabaseAuthFailures++;
-    console.warn(`⚠️ [Webhook DB] Supabase auth failed (${supabaseAuthFailures}). Falling back to local-only mode.`);
+    const stepInfo = step ? ` at step "${step}"` : "";
+    console.warn(`⚠️ [Webhook DB] Supabase auth failed${stepInfo} (${supabaseAuthFailures}). Falling back to local-only mode.`);
     return { success: true, data: { status: "local_logged_only_due_to_missing_supabase", normalized } };
+  };
+
+  const handleDbError = (step: string, error: any, fallbackMsg?: string): { success: boolean; data?: any; error?: string } => {
+    if (error && isSupabaseAuthError(error)) return localFallback(step);
+    console.error(`❌ [Webhook DB] Error at "${step}":`, error || fallbackMsg || "Unknown error");
+    return { success: false, error: (error && error.message) || fallbackMsg || `Failed at ${step}` };
   };
 
   if (!supabase) {
@@ -65,9 +72,7 @@ async function processWebhookMessage(payload: any): Promise<{ success: boolean; 
       .maybeSingle();
 
     if (findContactError) {
-      if (isSupabaseAuthError(findContactError)) return localFallback();
-      console.error("❌ [Webhook DB] Error locating contact record:", findContactError);
-      return { success: false, error: findContactError.message };
+      return handleDbError("find contact", findContactError);
     }
 
     if (existingContact) {
@@ -91,8 +96,7 @@ async function processWebhookMessage(payload: any): Promise<{ success: boolean; 
         .single();
 
       if (createContactError || !newContact) {
-        console.error("❌ [Webhook DB] Error creating contact record:", createContactError);
-        return { success: false, error: createContactError?.message || "Failed to create contact" };
+        return handleDbError("create contact", createContactError, "Failed to create contact");
       }
       contactId = newContact.id;
     }
@@ -105,8 +109,7 @@ async function processWebhookMessage(payload: any): Promise<{ success: boolean; 
       .neq("status", "closed");
 
     if (findConvError) {
-      console.error("❌ [Webhook DB] Error checking conversation status:", findConvError);
-      return { success: false, error: findConvError.message };
+      return handleDbError("find conversation", findConvError);
     }
 
     let conversation: any;
@@ -129,8 +132,7 @@ async function processWebhookMessage(payload: any): Promise<{ success: boolean; 
         .single();
 
       if (createConvError || !newConv) {
-        console.error("❌ [Webhook DB] Error spanning new conversation:", createConvError);
-        return { success: false, error: createConvError?.message || "Failed to create conversation" };
+        return handleDbError("create conversation", createConvError, "Failed to create conversation");
       }
       conversation = newConv;
     } else {
@@ -148,8 +150,7 @@ async function processWebhookMessage(payload: any): Promise<{ success: boolean; 
         .single();
 
       if (updateConvError || !updatedConv) {
-        console.error("❌ [Webhook DB] Error saving conversation updates:", updateConvError);
-        return { success: false, error: updateConvError?.message || "Failed to update conversation" };
+        return handleDbError("update conversation", updateConvError, "Failed to update conversation");
       }
       conversation = updatedConv;
     }
@@ -172,8 +173,7 @@ async function processWebhookMessage(payload: any): Promise<{ success: boolean; 
       .single();
 
     if (insertMsgError) {
-      console.error("❌ [Webhook DB] Error writing message entry:", insertMsgError);
-      return { success: false, error: insertMsgError.message };
+      return handleDbError("upsert message", insertMsgError);
     }
 
     // 6. Register auditing System Event
@@ -191,7 +191,12 @@ async function processWebhookMessage(payload: any): Promise<{ success: boolean; 
       });
 
     if (systemEventError) {
-      console.error("❌ [Webhook DB] Error registering system event:", systemEventError);
+      if (isSupabaseAuthError(systemEventError)) {
+        supabaseAuthFailures++;
+        console.warn(`⚠️ [Webhook DB] Supabase auth failed at step "system event" (${supabaseAuthFailures}). Falling back to local-only mode.`);
+      } else {
+        console.error("❌ [Webhook DB] Error registering system event:", systemEventError);
+      }
     }
 
     console.log(`✅ [Webhook Processor] Successfully stored inbound reply for ${phone} (Conv: ${conversation.id})`);
@@ -447,6 +452,7 @@ function startServer() {
         webhookSecretConfigured: isSecretSet,
         supabaseConfigured: supabasePresent,
         persistenceMode,
+        supabaseRole,
       },
       telemetry: {
         totalWebhooksProcessed: webhookReceiptCount,

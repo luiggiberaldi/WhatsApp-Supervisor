@@ -6,6 +6,7 @@ dotenv.config();
 const supabaseUrl = process.env.VITE_SUPABASE_URL || "";
 // Prioritize service role key if it's available, otherwise fallback to the anon key
 let supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
+let supabaseRole: "service_role" | "anon" | "none" = process.env.SUPABASE_SERVICE_ROLE_KEY ? "service_role" : supabaseKey ? "anon" : "none";
 
 // Ignore placeholder keys (e.g. "your-*", "placeholder-*", "change-me") to avoid silent auth failures
 const placeholderPattern = /^(your-|placeholder|change[._-]?me|replace[._-]?with)/i;
@@ -14,9 +15,11 @@ if (placeholderPattern.test(supabaseKey)) {
   if (!placeholderPattern.test(fallbackKey)) {
     console.warn("⚠️ [Server Supabase] SUPABASE_SERVICE_ROLE_KEY is a placeholder. Falling back to VITE_SUPABASE_ANON_KEY.");
     supabaseKey = fallbackKey;
+    supabaseRole = "anon";
   } else {
     console.warn("⚠️ [Server Supabase] Both SUPABASE_SERVICE_ROLE_KEY and VITE_SUPABASE_ANON_KEY are placeholders. Supabase client disabled.");
     supabaseKey = "";
+    supabaseRole = "none";
   }
 }
 
@@ -27,4 +30,6 @@ if (!supabaseUrl || !supabaseKey) {
 export const supabase = supabaseUrl && supabaseKey 
   ? createClient(supabaseUrl, supabaseKey) 
   : null;
+
+export { supabaseRole };
 
