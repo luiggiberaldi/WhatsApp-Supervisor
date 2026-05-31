@@ -1,6 +1,5 @@
 import express, { Request, Response } from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
 import cors from "cors";
 import dotenv from "dotenv";
 
@@ -435,14 +434,8 @@ async function startServer() {
     });
   });
 
-  // === Vite Middleware (Dev Mode) or Static Production Server Asserts ===
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
+  // === Static Production Server (dev frontend is served by Vite separately) ===
+  if (process.env.NODE_ENV === "production") {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (req: Request, res: Response) => {
