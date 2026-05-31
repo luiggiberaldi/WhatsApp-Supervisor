@@ -119,17 +119,14 @@ export default function Inbox() {
                       <span className="font-bold text-sm text-slate-900 truncate">
                         {contact?.display_name || contact?.phone}
                       </span>
-                      <span className={cn(
-                        "text-[10px] font-medium tabular-nums shrink-0",
-                        conv.unread_count > 0 ? "text-indigo-650 font-bold" : "text-slate-400"
-                      )}>
-                        {conv.unread_count > 0 ? "NUEVO MSG" : format(new Date(conv.last_message_at), 'HH:mm')}
+                      <span className="text-[10px] font-medium tabular-nums text-slate-400 shrink-0 ml-2">
+                        {format(new Date(conv.last_message_at), 'HH:mm')}
                       </span>
                     </div>
                     
                     <p className={cn(
                       "text-xs truncate mb-2",
-                      conv.unread_count > 0 ? "text-slate-900 font-bold" : "text-slate-500"
+                      conv.unread_count > 0 ? "text-slate-900 font-semibold" : "text-slate-500"
                     )}>
                       {conv.last_message_preview}
                     </p>
@@ -153,7 +150,11 @@ export default function Inbox() {
                   </div>
                   
                   {conv.unread_count > 0 && (
-                    <div className="absolute right-4 top-4 w-2 h-2 bg-indigo-600 rounded-full shadow-[0_0_4px_#4f46e5]" />
+                    <div className="flex flex-col items-end justify-center shrink-0 self-center pl-1">
+                      <span className="bg-indigo-600 text-white font-extrabold text-[10px] leading-none h-5 px-1.5 rounded-full min-w-[20px] max-w-[32px] text-center shadow-[0_1px_4px_rgba(79,70,229,0.3)] flex items-center justify-center animate-pulse">
+                        {conv.unread_count}
+                      </span>
+                    </div>
                   )}
                 </button>
               );
