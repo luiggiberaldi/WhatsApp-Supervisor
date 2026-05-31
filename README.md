@@ -58,28 +58,38 @@ Los eventos recomendados a suscribir son `messages.upsert`, `messages.update`.
 
 ### Variables de Entorno Requeridas (.env)
 
+Copia `.env.example` a `.env` y completa SOLO las variables con valores reales.
+Las variables con placeholders `"your-*"` **deben reemplazarse o comentarse**.
+
 ```env
-# Supabase
+# Supabase — Obligatorias para modo persistente
 VITE_SUPABASE_URL="https://your-project.supabase.co"
 VITE_SUPABASE_ANON_KEY="your-anon-key"
-SUPABASE_SERVICE_ROLE_KEY="your-service-role-key" # Altamente recomendado para bypassed de RLS en webhooks
+# SUPABASE_SERVICE_ROLE_KEY=""   # ← Opcional. Comentada = usa VITE_SUPABASE_ANON_KEY
 
-# Evolution API
+# Evolution API — Opcionales (sin ellas opera en modo simulado)
 EVOLUTION_API_URL="http://your-evolution-instance.com"
 EVOLUTION_API_KEY="your-global-api-key"
 EVOLUTION_INSTANCE_NAME="main"
 
-# Seguridad Webhook
+# Seguridad Webhook — Opcional en dev
 WEBHOOK_SECRET="my_secure_webhook_secret"
 ```
 
+> **⚠️  Importante**: Si `SUPABASE_SERVICE_ROLE_KEY` queda con un valor placeholder
+> (ej. `"your-supabase-service-role-key"`), el backend crea un cliente Supabase
+> con esa key inválida y **todas las queries fallan** con `"Invalid API key"`.
+> Ante la duda, mantenela comentada.
+
 ### Endpoints del Backend
 
-- **GET `/api/health`**: Estado de vitalidad del backend.
-- **GET `/api/evolution/status`**: Panel de diagnóstico técnico en formato JSON que detalla la configuración del backend, si las claves están configuradas y información sobre el último webhook procesado.
-- **POST `/api/webhooks/evolution`**: Endpoint real para ingesta de callbacks de Evolution API (`messages.upsert`).
-- **POST `/api/webhooks/evolution/test`**: **Simulador Local**. Te permite simular un webhook entrante de Evolution de forma programática sin tener una instancia física conectada.
-- **POST `/api/messages/send`**: Proxy seguro que recibe un mensaje saliente del cliente web y lo despacha a la API de Evolution de forma invisible.
+| Endpoint | Uso | Auth requerida | Modo fallback |
+|---|---|---|---|
+| `GET /api/health` | Healthcheck simple | No | — |
+| `GET /api/evolution/status` | Diagnóstico de configuración (variables, modo persistencia, último webhook) | No | — |
+| `POST /api/webhooks/evolution` | Webhook real de Evolution API (`messages.upsert`) | Header `x-webhook-secret` (si `WEBHOOK_SECRET` está definido) | Sí: si Supabase falla, opera en local |
+| `POST /api/webhooks/evolution/test` | Simulador local de webhook (no requiere Evolution real) | No | Sí: idéntico al real |
+| `POST /api/messages/send` | Proxy de envío outbound (frontend → backend → Evolution API) | No | Sí: registra como `"failed"` si no hay Evolution |
 
 ### Cómo probar la integración en Local
 
@@ -106,7 +116,7 @@ curl -X POST http://localhost:3000/api/webhooks/evolution/test \
   }'
 ```
 
-Este comando simulará internamente el webhook exacto de Evolution. Nuestro procesador realizará secuencialmente las siguientes operaciones reales en Supabase:
+Este comando simulará internamente el webhook exacto de Evolution. El procesador intentará las siguientes operaciones en Supabase. Si Supabase no está disponible o la key es inválida, **fallback automático a modo local** (la respuesta indicará `status: "local_logged_only_due_to_missing_supabase"`):
 1. Buscará o creará al contacto "Eduardo Pérez" con número `5491122334455`.
 2. Buscará o iniciará una conversación/ticket activo para este lead en estado `new` (Sin Asignar).
 3. Insertará el mensaje entrante con estado `received` y asociará el payload.
@@ -136,6 +146,52 @@ curl -X POST http://localhost:3000/api/webhooks/evolution \
   -H "x-webhook-secret: my_secure_webhook_secret" \
   -d '{"event":"messages.upsert","data":{"key":{"remoteJid":"5491122334455@s.whatsapp.net","fromMe":false,"id":"test_001"},"message":{"conversation":"Hola desde el webhook real"},"messageType":"conversation","messageTimestamp":'$(date +%s)',"pushName":"Test Real","status":"RECEIVED"}}'
 ```
+
+## Troubleshooting
+
+### "Invalid API key" al llamar al webhook test o send
+**Causa más probable**: `SUPABASE_SERVICE_ROLE_KEY` tiene un valor placeholder
+(`"your-supabase-service-role-key"`) en el `.env`. El backend lo toma como key válida,
+crea el cliente Supabase, y al hacer la primera query Supabase la rechaza.
+
+**Solución**: Abrir `.env` y comentar o eliminar `SUPABASE_SERVICE_ROLE_KEY`.
+El backend usará `VITE_SUPABASE_ANON_KEY` automáticamente.
+
+**Verificación**: Correr `curl http://localhost:3000/api/evolution/status` y verificar
+que `databaseConnected` sea `true`.
+
+### El webhook test responde 200 pero con "local_logged_only_due_to_missing_supabase"
+**Causa**: Supabase no está configurado (key faltante o placeholder detectado).
+El backend opera en **modo local** — las operaciones se registran en memoria pero
+no persisten.
+
+**Solución**: Si querés persistencia real, configura `VITE_SUPABASE_URL` y
+`VITE_SUPABASE_ANON_KEY` con valores reales de tu proyecto Supabase.
+Si estás en desarrollo temprano, esto es normal y podés seguir trabajando.
+
+### Cannot GET /api/health o el servidor no responde
+**Causas posibles**:
+- El backend no se levantó correctamente -> revisar la terminal donde corre `npm run dev`.
+- Otro proceso ocupa el puerto 3000 -> `npx kill-port 3000` y reiniciar.
+- Estás pegándole al puerto 5173 (Vite) en vez de 3000 (Express).
+  Recordá: la API vive en `localhost:3000/api/*`. El proxy de Vite la redirige
+  automáticamente desde `localhost:5173/api/*`.
+
+### 401 Unauthorized al llamar al webhook real
+**Causa**: El endpoint `/api/webhooks/evolution` requiere el header
+`x-webhook-secret` con el valor exacto de `WEBHOOK_SECRET`.
+
+**Solución**: Incluir `-H "x-webhook-secret: my_secure_webhook_secret"` en el curl.
+Si no querés validación en desarrollo, comentá `WEBHOOK_SECRET` en `.env`.
+
+### Diferencia entre webhook real y test
+| Aspecto | `/api/webhooks/evolution` | `/api/webhooks/evolution/test` |
+|---|---|---|
+| Propósito | Producción — recibe callbacks reales de Evolution API | Desarrollo — simula un mensaje entrante |
+| Auth | Requiere `x-webhook-secret` (si configurado) | Sin auth |
+| Payload | El que envía Evolution API | Lo construye el servidor con `{ phone, text, senderName }` |
+| Flujo | Idéntico (processWebhookMessage) | Idéntico (processWebhookMessage) |
+| Fallback Supabase | Sí, a local si auth falla | Sí, a local si auth falla |
 
 ### Siguientes Pasos (Fase 3)
 

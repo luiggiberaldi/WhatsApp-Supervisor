@@ -19,6 +19,7 @@ const PORT = 3000;
 let lastWebhookReceivedAt: string | null = null;
 let lastWebhookPayload: any = null;
 let webhookReceiptCount = 0;
+let supabaseAuthFailures = 0; // incremented when processWebhookMessage falls back due to auth error
 
 /**
  * Reusable core workflow to process a valid normalized or mock webhook event.
@@ -44,7 +45,8 @@ async function processWebhookMessage(payload: any): Promise<{ success: boolean; 
     return ["invalid api key", "invalid authentication", "unauthorized", "forbidden", "jwt expired"].some(e => msg.includes(e));
   };
   const localFallback = () => {
-    console.warn("⚠️ [Webhook DB] Supabase auth failed. Falling back to local-only mode.");
+    supabaseAuthFailures++;
+    console.warn(`⚠️ [Webhook DB] Supabase auth failed (${supabaseAuthFailures}). Falling back to local-only mode.`);
     return { success: true, data: { status: "local_logged_only_due_to_missing_supabase", normalized } };
   };
 
@@ -430,6 +432,11 @@ function startServer() {
     const isApiKeyStored = !!process.env.EVOLUTION_API_KEY;
     const hasInstanceStored = !!process.env.EVOLUTION_INSTANCE_NAME;
     const isSecretSet = !!process.env.WEBHOOK_SECRET;
+    const supabasePresent = !!supabase;
+    const supabaseHealthy = supabasePresent && supabaseAuthFailures === 0;
+    const persistenceMode = !supabasePresent ? "local_fallback (no credentials)"
+                         : supabaseAuthFailures > 0 ? `local_fallback (${supabaseAuthFailures} auth failure(s))`
+                         : "active";
 
     res.json({
       environment: {
@@ -439,7 +446,8 @@ function startServer() {
         evolutionInstanceConfigured: hasInstanceStored,
         apiKeyPresent: isApiKeyStored,
         webhookSecretConfigured: isSecretSet,
-        databaseConnected: !!supabase,
+        supabaseConfigured: supabasePresent,
+        persistenceMode,
       },
       telemetry: {
         totalWebhooksProcessed: webhookReceiptCount,
