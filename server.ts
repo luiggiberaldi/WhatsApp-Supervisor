@@ -13,7 +13,14 @@ import {
 } from "./server/lib/evolution.js";
 import { supabase, supabaseRole } from "./server/lib/supabase.js";
 
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || "3000", 10);
+
+process.on('uncaughtException', (err) => {
+  console.error('💥 [Process] Uncaught exception:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('💥 [Process] Unhandled rejection:', reason);
+});
 
 // Memory stores for live diagnostic tracing on the server
 let lastWebhookReceivedAt: string | null = null;
@@ -211,8 +218,30 @@ async function processWebhookMessage(payload: any): Promise<{ success: boolean; 
 function startServer() {
   const app = express();
 
-  app.use(cors());
+  const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    process.env.FRONTEND_URL || '',
+  ].filter(Boolean);
+
+  app.use(cors({
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+  }));
   app.use(express.json());
+
+  if (process.env.NODE_ENV !== 'development') {
+    app.use((req: Request, _res: Response, next: Function) => {
+      console.log(`📨 ${req.method} ${req.path}`);
+      next();
+    });
+  }
 
   // === Healthcheck ===
   app.get("/api/health", (req: Request, res: Response) => {
@@ -631,8 +660,11 @@ function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 [Server Boot] Active and listening at http://localhost:${PORT}`);
+  });
+  server.on('error', (err: any) => {
+    console.error(`❌ [Server Boot] Failed to listen on port ${PORT}:`, err.message || err);
   });
 }
 
