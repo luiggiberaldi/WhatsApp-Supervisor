@@ -56,6 +56,23 @@ Los eventos recomendados a suscribir son `messages.upsert`, `messages.update`.
 - El webhook real valida el secret **antes** de registrar el payload en memoria o procesarlo.
 - Los mensajes salientes sin Evolution configurado se registran con estado `failed` (no `received`).
 
+### Mapa de Claves Supabase
+
+| Clave | Dónde se usa | Rol | RLS |
+|-------|-------------|-----|-----|
+| `VITE_SUPABASE_ANON_KEY` | Frontend (`src/lib/supabase.ts`) y backend como fallback | `anon` | Respetado — solo SELECT si hay políticas públicas |
+| `SUPABASE_SERVICE_ROLE_KEY` | Backend (`server/lib/supabase.ts`) como preferente | `service_role` | **Bypass total** — puede INSERT/UPDATE/UPSERT sin políticas |
+
+El frontend usa la **anon key** (pública, va al bundle de Vite). El backend webhook
+usa la **service role key** cuando está disponible, porque necesita escribir en
+`contacts`, `conversations`, `messages` y `system_events` — operaciones que la
+anon key no puede hacer si RLS está activo y no hay políticas de escritura.
+
+Si `SUPABASE_SERVICE_ROLE_KEY` no está configurada (comentada o ausente), el backend
+cae automáticamente a `VITE_SUPABASE_ANON_KEY`. Esto funciona para consultas de
+lectura, pero las escrituras (INSERT/UPDATE/UPSERT) fallarán con
+`"new row violates row-level security policy"`.
+
 ### Variables de Entorno Requeridas (.env)
 
 Copia `.env.example` a `.env` y completa SOLO las variables con valores reales.
@@ -65,7 +82,7 @@ Las variables con placeholders `"your-*"` **deben reemplazarse o comentarse**.
 # Supabase — Obligatorias para modo persistente
 VITE_SUPABASE_URL="https://your-project.supabase.co"
 VITE_SUPABASE_ANON_KEY="your-anon-key"
-# SUPABASE_SERVICE_ROLE_KEY=""   # ← Opcional. Comentada = usa VITE_SUPABASE_ANON_KEY
+# SUPABASE_SERVICE_ROLE_KEY=""   # ← Requerida para webhook. Sin ella, escrituras fallan por RLS
 
 # Evolution API — Opcionales (sin ellas opera en modo simulado)
 EVOLUTION_API_URL="http://your-evolution-instance.com"
@@ -79,14 +96,14 @@ WEBHOOK_SECRET="my_secure_webhook_secret"
 > **⚠️  Importante**: Si `SUPABASE_SERVICE_ROLE_KEY` queda con un valor placeholder
 > (ej. `"your-supabase-service-role-key"`), el backend crea un cliente Supabase
 > con esa key inválida y **todas las queries fallan** con `"Invalid API key"`.
-> Ante la duda, mantenela comentada.
+> Ante la duda, mantenela comentada y el backend usará la anon key.
 
 ### Endpoints del Backend
 
 | Endpoint | Uso | Auth requerida | Modo fallback |
-|---|---|---|---|
+|---|---|---|---|---|
 | `GET /api/health` | Healthcheck simple | No | — |
-| `GET /api/evolution/status` | Diagnóstico de configuración (variables, modo persistencia, último webhook) | No | — |
+| `GET /api/evolution/status` | Diagnóstico de configuración (variables, modo persistencia, supabaseRole, último webhook) | No | — |
 | `POST /api/webhooks/evolution` | Webhook real de Evolution API (`messages.upsert`) | Header `x-webhook-secret` (si `WEBHOOK_SECRET` está definido) | Sí: si Supabase falla, opera en local |
 | `POST /api/webhooks/evolution/test` | Simulador local de webhook (no requiere Evolution real) | No | Sí: idéntico al real |
 | `POST /api/messages/send` | Proxy de envío outbound (frontend → backend → Evolution API) | No | Sí: registra como `"failed"` si no hay Evolution |
@@ -102,6 +119,18 @@ npm run dev
 #### 2. Consultar el estado del backend o diagnóstico
 Abre una terminal o tu navegador en:
 `http://localhost:3000/api/evolution/status`
+
+Ejemplo de respuesta:
+```json
+{
+  "environment": {
+    "evolutionApiUrlConfigured": true,
+    "supabaseConfigured": true,
+    "persistenceMode": "active",
+    "supabaseRole": "service_role"
+  }
+}
+```
 
 #### 3. Simular un mensaje entrante (Webhook) con `curl`
 Puedes simular que un cliente real te escribió por WhatsApp enviando este comando `curl` (o usando un cliente como Postman/Thunder Client):
@@ -158,7 +187,7 @@ crea el cliente Supabase, y al hacer la primera query Supabase la rechaza.
 El backend usará `VITE_SUPABASE_ANON_KEY` automáticamente.
 
 **Verificación**: Correr `curl http://localhost:3000/api/evolution/status` y verificar
-que `persistenceMode` sea `"active"`.
+que `persistenceMode` sea `"active"` y `supabaseRole` sea `"anon"`.
 
 ### El webhook test responde 200 pero con "local_logged_only_due_to_missing_supabase"
 **Causa**: Supabase no está configurado (key faltante o placeholder detectado).
@@ -183,6 +212,19 @@ Si estás en desarrollo temprano, esto es normal y podés seguir trabajando.
 
 **Solución**: Incluir `-H "x-webhook-secret: my_secure_webhook_secret"` en el curl.
 Si no querés validación en desarrollo, comentá `WEBHOOK_SECRET` en `.env`.
+
+### El webhook test responde 400 con "new row violates row-level security policy"
+**Causa**: El backend está usando la anon key (`supabaseRole: "anon"` en status).
+La anon key respeta RLS y el esquema actual solo tiene políticas de SELECT para
+`contacts`, no de INSERT/UPDATE. Cualquier escritura desde el webhook falla.
+
+**Solución**: Agregar `SUPABASE_SERVICE_ROLE_KEY` real en `.env`. El backend la
+detecta automáticamente y pasa a usar `service_role`, que bypassa RLS.
+
+**Diagnóstico**: Verificar en `GET /api/evolution/status`:
+- `supabaseRole` debe mostrar `"service_role"` (no `"anon"`)
+- `persistenceMode` muestra `"active"` en ambos casos — no es suficiente para
+  diagnosticar este error; `supabaseRole` es el campo clave.
 
 ### Diferencia entre webhook real y test
 | Aspecto | `/api/webhooks/evolution` | `/api/webhooks/evolution/test` |
