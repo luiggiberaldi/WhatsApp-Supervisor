@@ -5,7 +5,7 @@ import { cn } from '../lib/utils';
 
 export default function Layout() {
   const currentUser = useAppStore(state => state.currentUser);
-  const setCurrentUser = useAppStore(state => state.setCurrentUser);
+  const logout = useAppStore(state => state.logout);
   const conversations = useAppStore(state => state.conversations);
   
   const unreadCount = conversations.reduce((acc, c) => acc + c.unread_count, 0);
@@ -59,7 +59,7 @@ export default function Layout() {
         <aside className="w-16 md:w-60 bg-slate-900 text-slate-300 flex flex-col transition-all duration-300 shrink-0">
           <nav className="flex-1 py-4 flex flex-col gap-1 px-2.5">
             <NavLink
-              to="/inbox"
+              to="/conversations"
               className={({ isActive }) => cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors relative",
                 isActive ? "bg-indigo-600 text-white font-bold" : "hover:bg-slate-850 hover:text-white text-slate-400"
@@ -93,7 +93,7 @@ export default function Layout() {
                 <span className="hidden md:block font-medium text-sm">Ajustes</span>
               </button>
               <button 
-                onClick={() => setCurrentUser(null)}
+                onClick={() => logout()}
                 className="flex w-full items-center gap-3 px-3 py-2.5 rounded-lg transition-colors hover:bg-red-500/10 hover:text-red-400 text-slate-400"
               >
                 <LogOut className="w-5 h-5 shrink-0" />

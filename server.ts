@@ -562,6 +562,35 @@ function startServer() {
     }
   });
 
+  // === PATCH /api/conversations/:id/read — reset unread_count ===
+  app.patch("/api/conversations/:id/read", async (req: Request, res: Response) => {
+    try {
+      if (!supabase) {
+        return res.status(503).json({ error: "Supabase not configured" });
+      }
+
+      const { id } = req.params;
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+
+      const { error } = await supabase
+        .from("conversations")
+        .update({ unread_count: 0, updated_at: new Date().toISOString() })
+        .eq("id", id);
+
+      if (error) {
+        console.error("❌ [Conversations] Error resetting unread_count:", error);
+        return res.status(500).json({ error: "Failed to update conversation" });
+      }
+
+      return res.json({ success: true });
+    } catch (err: any) {
+      console.error("💥 [Conversations] Uncaught error:", err);
+      return res.status(500).json({ error: err.message || "Internal server error" });
+    }
+  });
+
   // === Debug Configuration/Instance Status Diagnostics Endpoint (Step 8) ===
   app.get("/api/evolution/status", (req: Request, res: Response) => {
     const isUrlStored = !!process.env.EVOLUTION_API_URL;
