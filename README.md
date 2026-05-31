@@ -5,8 +5,8 @@ Aplicación standalone diseñada para demostrar la operación de un equipo comer
 ## Arquitectura
 
 - **Frontend**: React + Vite + TailwindCSS. Configurado para funcionar inicialmente de forma local con Zustand (incluye "Modo Demo Local" pre-cargado).
-- **Backend / Realtime**: Preparado para Supabase (Auth, RLS, Realtime) y un servidor Express.js Node embebido en el build para proxy de APIs.
-- **Webhook Integration**: Capa separada para ingesta desde ***Evolution API*** definida en `server.ts`.
+- **Backend**: Express.js con APIs REST. En desarrollo corre separado del frontend (concurrently). En producción sirve los estáticos del build de Vite.
+- **Webhook Integration**: Capa separada para ingesta desde ***Evolution API*** (`server/lib/evolution.ts`).
 
 ## Cómo instalar y correr en local
 
@@ -158,7 +158,7 @@ crea el cliente Supabase, y al hacer la primera query Supabase la rechaza.
 El backend usará `VITE_SUPABASE_ANON_KEY` automáticamente.
 
 **Verificación**: Correr `curl http://localhost:3000/api/evolution/status` y verificar
-que `databaseConnected` sea `true`.
+que `persistenceMode` sea `"active"`.
 
 ### El webhook test responde 200 pero con "local_logged_only_due_to_missing_supabase"
 **Causa**: Supabase no está configurado (key faltante o placeholder detectado).

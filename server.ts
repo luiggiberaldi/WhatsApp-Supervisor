@@ -433,7 +433,6 @@ function startServer() {
     const hasInstanceStored = !!process.env.EVOLUTION_INSTANCE_NAME;
     const isSecretSet = !!process.env.WEBHOOK_SECRET;
     const supabasePresent = !!supabase;
-    const supabaseHealthy = supabasePresent && supabaseAuthFailures === 0;
     const persistenceMode = !supabasePresent ? "local_fallback (no credentials)"
                          : supabaseAuthFailures > 0 ? `local_fallback (${supabaseAuthFailures} auth failure(s))`
                          : "active";
