@@ -38,6 +38,16 @@ async function processWebhookMessage(payload: any): Promise<{ success: boolean; 
 
   const { phone, senderName, messageId, content, timestamp, direction, rawPayload } = normalized;
 
+  // Helper: if Supabase auth fails at any point, fall back to local-only mode
+  const isSupabaseAuthError = (err: any) => {
+    const msg = err?.message?.toLowerCase() || "";
+    return ["invalid api key", "invalid authentication", "unauthorized", "forbidden", "jwt expired"].some(e => msg.includes(e));
+  };
+  const localFallback = () => {
+    console.warn("⚠️ [Webhook DB] Supabase auth failed. Falling back to local-only mode.");
+    return { success: true, data: { status: "local_logged_only_due_to_missing_supabase", normalized } };
+  };
+
   if (!supabase) {
     console.warn("⚠️ [Webhook Engine Error] Supabase client is uninitialized. Skipping database insertions.");
     return { success: true, data: { status: "local_logged_only_due_to_missing_supabase", normalized } };
@@ -53,6 +63,7 @@ async function processWebhookMessage(payload: any): Promise<{ success: boolean; 
       .maybeSingle();
 
     if (findContactError) {
+      if (isSupabaseAuthError(findContactError)) return localFallback();
       console.error("❌ [Webhook DB] Error locating contact record:", findContactError);
       return { success: false, error: findContactError.message };
     }
@@ -164,7 +175,7 @@ async function processWebhookMessage(payload: any): Promise<{ success: boolean; 
     }
 
     // 6. Register auditing System Event
-    await supabase
+    const { error: systemEventError } = await supabase
       .from("system_events")
       .insert({
         conversation_id: conversation.id,
@@ -177,6 +188,10 @@ async function processWebhookMessage(payload: any): Promise<{ success: boolean; 
         },
       });
 
+    if (systemEventError) {
+      console.error("❌ [Webhook DB] Error registering system event:", systemEventError);
+    }
+
     console.log(`✅ [Webhook Processor] Successfully stored inbound reply for ${phone} (Conv: ${conversation.id})`);
     return { success: true, data: { contactId, conversationId: conversation.id, message: insertedMessage } };
 
@@ -186,7 +201,7 @@ async function processWebhookMessage(payload: any): Promise<{ success: boolean; 
   }
 }
 
-async function startServer() {
+function startServer() {
   const app = express();
 
   app.use(cors());
@@ -200,20 +215,13 @@ async function startServer() {
   // === Evolution API Webhooks Entrypoint ===
   app.post("/api/webhooks/evolution", async (req: Request, res: Response) => {
     const payload = req.body;
-    
-    // Save state for diagnostics route
-    lastWebhookReceivedAt = new Date().toISOString();
-    lastWebhookPayload = payload;
-    webhookReceiptCount++;
 
-    console.log(`📥 [Webhook Received] Event Count: ${webhookReceiptCount}, Time: ${lastWebhookReceivedAt}`);
-
-    // Signature Validation
+    // Signature Validation — must pass before any logging
     const webhookSecret = process.env.WEBHOOK_SECRET;
     if (webhookSecret) {
-      const incomingSecret = req.headers["x-webhook-secret"] || 
-                             req.headers["webhook-signature"] || 
-                             req.headers["authorization"] || 
+      const incomingSecret = req.headers["x-webhook-secret"] ||
+                             req.headers["webhook-signature"] ||
+                             req.headers["authorization"] ||
                              req.query.token;
 
       if (incomingSecret !== webhookSecret && incomingSecret !== `Bearer ${webhookSecret}`) {
@@ -221,6 +229,13 @@ async function startServer() {
         return res.status(401).json({ error: "Unauthorized: Invalid webhook secret token" });
       }
     }
+
+    // Save state for diagnostics route (only after validation passes)
+    lastWebhookReceivedAt = new Date().toISOString();
+    lastWebhookPayload = payload;
+    webhookReceiptCount++;
+
+    console.log(`📥 [Webhook Received] Event Count: ${webhookReceiptCount}, Time: ${lastWebhookReceivedAt}`);
 
     // Process the webhook async to let the response complete instantly
     const result = await processWebhookMessage(payload);
@@ -379,7 +394,7 @@ async function startServer() {
             content: text,
             message_type: "text",
             provider_message_id: databaseMessageId,
-            status: usingRealSender ? "sent" : "received",
+            status: usingRealSender ? "sent" : "failed",
             raw_payload: evolutionResponse || { simulated: true }
           });
 
@@ -448,6 +463,8 @@ async function startServer() {
   });
 }
 
-startServer().catch((error) => {
+try {
+  startServer();
+} catch (error) {
   console.error("❌ [Server Boot Failure] Uncaught startup error:", error);
-});
+}

@@ -5,7 +5,14 @@ dotenv.config();
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || "";
 // Prioritize service role key if it's available, otherwise fallback to the anon key
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
+let supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
+
+// Ignore placeholder keys (e.g. "your-*", "placeholder-*", "change-me") to avoid silent auth failures
+const placeholderPattern = /^(your-|placeholder|change[._-]?me|replace[._-]?with)/i;
+if (placeholderPattern.test(supabaseKey)) {
+  console.warn("⚠️ [Server Supabase] SUPABASE_SERVICE_ROLE_KEY is a placeholder. Falling back to VITE_SUPABASE_ANON_KEY.");
+  supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || "";
+}
 
 if (!supabaseUrl || !supabaseKey) {
   console.warn("⚠️ [Server Supabase Backup] Warning: Supabase URL or Key is missing in server environment.");

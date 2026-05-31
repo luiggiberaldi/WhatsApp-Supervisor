@@ -6,7 +6,7 @@ Aplicación standalone diseñada para demostrar la operación de un equipo comer
 
 - **Frontend**: React + Vite + TailwindCSS. Configurado para funcionar inicialmente de forma local con Zustand (incluye "Modo Demo Local" pre-cargado).
 - **Backend / Realtime**: Preparado para Supabase (Auth, RLS, Realtime) y un servidor Express.js Node embebido en el build para proxy de APIs.
-- **Webhook Integration**: Capa separada para ingesta desde ***Evolution API*** definida en `server.js`.
+- **Webhook Integration**: Capa separada para ingesta desde ***Evolution API*** definida en `server.ts`.
 
 ## Cómo instalar y correr en local
 
@@ -19,7 +19,7 @@ Aplicación standalone diseñada para demostrar la operación de un equipo comer
    ```bash
    npm run dev
    ```
-4. Abrir `http://localhost:3000` en el navegador.
+4. Abrir `http://localhost:5173` en el navegador.
 
 ## Modo Demo Local
 
@@ -31,7 +31,7 @@ Al iniciar la aplicación sin configurar variables de entorno reales de Supabase
 ## Cómo configurar para Uso Real (Supabase + Evolution)
 
 ### 1. Supabase Config
-Copia las variables `.env.example` en un nuevo archivo `.env.local` en la raíz.
+Copia las variables `.env.example` a un archivo `.env` en la raíz.
 Asigna tus llaves reales:
 ```env
 VITE_SUPABASE_URL="https://tu_proyecto.supabase.co"
@@ -43,14 +43,20 @@ Aplica el **Esquema Inicial** abriendo la consola SQL de Supabase y copiando el 
 En tu instancia de Evolution API, configura tu Global Webhook para enviar eventos al endpoint remoto que expongas del backend Express de esta app:
 `POST https://tu-dominio.com/api/webhooks/evolution`
 
+El backend validará el webhook mediante el header `x-webhook-secret` con el valor de `WEBHOOK_SECRET`.
+Si el secret no coincide, el endpoint retorna `401 Unauthorized` y no procesa el payload.
+
 Los eventos recomendados a suscribir son `messages.upsert`, `messages.update`.
 
-## Desarrollo de la Integración (Fase 2)
+## Desarrollo de la Integración (Fase 2.5)
 
 - Todo pedido HTTP en `server.ts` se compila junto en un solo binario vía ESBuild para fácil despliegue en Contenedores sin romper las rutas ESM/CJS de React.
 - La función de envío a WhatsApp vive desconectada del componente (véase `/server/lib/evolution.ts`), lo que previene que las keys de Evolution salgan del scope del servidor.
+- Las claves sensibles (`SUPABASE_SERVICE_ROLE_KEY`, `EVOLUTION_API_KEY`, `WEBHOOK_SECRET`) solo se usan del lado servidor y nunca se exponen al frontend.
+- El webhook real valida el secret **antes** de registrar el payload en memoria o procesarlo.
+- Los mensajes salientes sin Evolution configurado se registran con estado `failed` (no `received`).
 
-### Variables de Entorno Requeridas (.env.local)
+### Variables de Entorno Requeridas (.env)
 
 ```env
 # Supabase
@@ -121,6 +127,23 @@ curl -X POST http://localhost:3000/api/messages/send \
 
 El backend mandará el request real a Evolution API si las variables están configuradas, y dejará asentado el log e inserción relacional de salida en la persistencia de Supabase.
 
-### Siguientes Pasos (Hacia la Fase 3)
-Una vez validada esta base de persistencia y enrutadores de mensajes, procederemos en la Fase 3 a habilitar la suscripción en Tiempo Real mediante Supabase Realtime en el Frontend (para que el listado de tickets reaccione instantáneamente al webhook), refinar el inbox de agente/supervisor y realizar el emparejamiento por código QR manual de un número real de producción.
+> **Nota**: Los ejemplos con `curl` usan `localhost:3000` (API directa). Si accedés desde el frontend en `localhost:5173`, el proxy de Vite redirige automáticamente `/api/*` al backend, por lo que no necesitás preocuparte por CORS.
+
+#### 5. Probar el webhook real con secret (si tenés Evolution configurada)
+```bash
+curl -X POST http://localhost:3000/api/webhooks/evolution \
+  -H "Content-Type: application/json" \
+  -H "x-webhook-secret: my_secure_webhook_secret" \
+  -d '{"event":"messages.upsert","data":{"key":{"remoteJid":"5491122334455@s.whatsapp.net","fromMe":false,"id":"test_001"},"message":{"conversation":"Hola desde el webhook real"},"messageType":"conversation","messageTimestamp":'$(date +%s)',"pushName":"Test Real","status":"RECEIVED"}}'
+```
+
+### Siguientes Pasos (Fase 3)
+
+La Fase 2.5 está completa: persistencia base, webhooks, proxy de mensajes y validaciones funcionando.
+
+Para la **Fase 3** queda pendiente:
+- Suscripción en tiempo real mediante Supabase Realtime en el frontend (para que el listado de tickets reaccione instantáneamente al webhook).
+- Refinar el inbox de agente/supervisor con indicadores de escritura y entregas.
+- Emparejamiento por código QR manual de un número real de producción via Evolution API.
+- Autenticación real con Supabase Auth en lugar del login de demo.
 
