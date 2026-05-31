@@ -1,4 +1,6 @@
-# BITACORA — Fase 2.5: Supabase + Webhook
+# BITACORA
+
+## Fase 2.5: Supabase + Webhook
 
 ## Resumen
 
@@ -145,3 +147,85 @@ Antes de depurar un error en webhooks o Supabase, verificar en orden:
    `persistenceMode: "active"` solo significa "cliente creado + sin auth errors".
    No significa "todas las queries funcionan". Usar `supabaseRole` para el
    diagnóstico real.
+
+---
+
+## Fase 3.0: Endpoints de lectura para bandeja supervisor
+
+**Fecha**: 2026-05-31
+**Estado**: Completado
+
+### Qué se hizo
+
+Se implementaron tres endpoints REST de lectura para que el futuro frontend
+supervisor pueda consultar conversaciones y mensajes persistidos en Supabase.
+
+### Archivos modificados
+
+| Archivo | Cambio |
+|---------|--------|
+| `server.ts` | Se agregaron 3 nuevas rutas GET en `startServer()` |
+| `README.md` | Se documentaron los nuevos endpoints en tabla y sección de testing |
+| `BITACORA.md` | Esta entrada |
+
+### Endpoints creados
+
+| Endpoint | Propósito |
+|----------|-----------|
+| `GET /api/conversations` | Lista conversaciones ordenadas por `last_message_at DESC` con JOIN a `contacts` |
+| `GET /api/conversations/:id` | Detalle de una conversación con datos del contacto |
+| `GET /api/conversations/:id/messages` | Mensajes de una conversación ordenados por `created_at ASC` con paginación |
+
+### Campos devueltos por endpoint
+
+**GET /api/conversations**:
+- conversation: `id`, `contact_id`, `status`, `assigned_to`, `last_message_at`, `last_message_preview`, `unread_count`, `created_at`, `updated_at`
+- contact (join): `display_name`, `phone`
+
+**GET /api/conversations/:id**:
+- conversation: todos los campos anteriores
+- contact (join): `id`, `display_name`, `phone`, `avatar_url`, `created_at`
+
+**GET /api/conversations/:id/messages**:
+- message: `id`, `conversation_id`, `contact_id`, `direction`, `content`, `message_type`, `provider_message_id`, `sent_by_user_id`, `status`, `raw_payload`, `created_at`
+- pagination: `page`, `limit`, `total`, `pages`
+
+### Errores encontrados
+
+1. **UUID inválido causaba 500 en vez de 404**
+   - Al pasar un ID que no es UUID válido (ej. `nonexistent-id`), PostgreSQL
+     lanzaba error de tipo y el endpoint devolvía 500.
+   - **Solución**: Se agregó validación de formato UUID v4 con regex
+     `/^[0-9a-f]{8}-...$/i` al inicio de las rutas `:id`. Si no coincide,
+     responde 404 inmediatamente sin consultar Supabase.
+
+### Verificación final
+
+```powershell
+# Listar conversaciones
+curl http://localhost:3000/api/conversations
+# → 200 { data: [{ id, contact_id, status, ..., contact: { display_name, phone } }] }
+
+# Detalle de conversación existente
+curl http://localhost:3000/api/conversations/<uuid-real>
+# → 200 { data: { id, status, ..., contact: { ... } } }
+
+# Detalle de conversación inexistente
+curl http://localhost:3000/api/conversations/<uuid-invalido>
+# → 404 { error: "Conversation not found" }
+
+# Mensajes de conversación existente
+curl http://localhost:3000/api/conversations/<uuid-real>/messages
+# → 200 { data: [{ id, direction, content, ... }], pagination: { page, limit, total, pages } }
+
+# Mensajes de conversación inexistente
+curl http://localhost:3000/api/conversations/<uuid-invalido>/messages
+# → 404 { error: "Conversation not found" }
+```
+
+### No repetir
+
+Al implementar endpoints con parámetros UUID:
+- Validar el formato del UUID antes de pasarlo a Supabase/PgREST
+- Usar `.maybeSingle()` en vez de `.single()` para evitar errores PGRST116
+- En endpoints con paginación, acotar `limit` máximo para evitar abusos (se fijó 100)

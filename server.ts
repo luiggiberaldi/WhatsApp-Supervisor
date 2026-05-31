@@ -431,6 +431,137 @@ function startServer() {
     }
   });
 
+  // === Conversation Endpoints — lectura para la bandeja del supervisor ===
+
+  // GET /api/conversations — lista todas las conversaciones con datos del contacto
+  app.get("/api/conversations", async (req: Request, res: Response) => {
+    try {
+      if (!supabase) {
+        return res.status(503).json({ error: "Supabase not configured" });
+      }
+
+      const { data, error } = await supabase
+        .from("conversations")
+        .select(`
+          *,
+          contact:contact_id (
+            display_name,
+            phone
+          )
+        `)
+        .order("last_message_at", { ascending: false, nullsFirst: false });
+
+      if (error) {
+        console.error("❌ [Conversations] Error fetching list:", error);
+        return res.status(500).json({ error: "Failed to fetch conversations" });
+      }
+
+      console.log(`📋 [Conversations] Returned ${data?.length || 0} conversations`);
+      return res.json({ data });
+    } catch (err: any) {
+      console.error("💥 [Conversations] Uncaught error:", err);
+      return res.status(500).json({ error: err.message || "Internal server error" });
+    }
+  });
+
+  // GET /api/conversations/:id — detalle de una conversación con contacto
+  app.get("/api/conversations/:id", async (req: Request, res: Response) => {
+    try {
+      if (!supabase) {
+        return res.status(503).json({ error: "Supabase not configured" });
+      }
+
+      const { id } = req.params;
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+
+      const { data, error } = await supabase
+        .from("conversations")
+        .select(`
+          *,
+          contact:contact_id (
+            id,
+            display_name,
+            phone,
+            avatar_url,
+            created_at
+          )
+        `)
+        .eq("id", id)
+        .maybeSingle();
+
+      if (error) {
+        console.error("❌ [Conversations] Error fetching detail:", error);
+        return res.status(500).json({ error: "Failed to fetch conversation" });
+      }
+
+      if (!data) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+
+      return res.json({ data });
+    } catch (err: any) {
+      console.error("💥 [Conversations] Uncaught error:", err);
+      return res.status(500).json({ error: err.message || "Internal server error" });
+    }
+  });
+
+  // GET /api/conversations/:id/messages — mensajes de una conversación
+  app.get("/api/conversations/:id/messages", async (req: Request, res: Response) => {
+    try {
+      if (!supabase) {
+        return res.status(503).json({ error: "Supabase not configured" });
+      }
+
+      const { id } = req.params;
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 100);
+      const from = (page - 1) * limit;
+      const to = from + limit - 1;
+
+      // Verify conversation exists
+      const { data: conv } = await supabase
+        .from("conversations")
+        .select("id")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (!conv) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+
+      // Fetch messages
+      const { data, error, count } = await supabase
+        .from("messages")
+        .select("*", { count: "exact" })
+        .eq("conversation_id", id)
+        .order("created_at", { ascending: true })
+        .range(from, to);
+
+      if (error) {
+        console.error("❌ [Conversations] Error fetching messages:", error);
+        return res.status(500).json({ error: "Failed to fetch messages" });
+      }
+
+      return res.json({
+        data,
+        pagination: {
+          page,
+          limit,
+          total: count || 0,
+          pages: count ? Math.ceil(count / limit) : 0,
+        },
+      });
+    } catch (err: any) {
+      console.error("💥 [Conversations] Uncaught error:", err);
+      return res.status(500).json({ error: err.message || "Internal server error" });
+    }
+  });
+
   // === Debug Configuration/Instance Status Diagnostics Endpoint (Step 8) ===
   app.get("/api/evolution/status", (req: Request, res: Response) => {
     const isUrlStored = !!process.env.EVOLUTION_API_URL;

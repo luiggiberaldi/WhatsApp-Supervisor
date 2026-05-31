@@ -104,6 +104,9 @@ WEBHOOK_SECRET="my_secure_webhook_secret"
 |---|---|---|---|---|
 | `GET /api/health` | Healthcheck simple | No | — |
 | `GET /api/evolution/status` | Diagnóstico de configuración (variables, modo persistencia, supabaseRole, último webhook) | No | — |
+| `GET /api/conversations` | Lista conversaciones activas con datos del contacto | No | — |
+| `GET /api/conversations/:id` | Detalle de una conversación con datos del contacto | No | — |
+| `GET /api/conversations/:id/messages` | Mensajes de una conversación (paginados) | No | — |
 | `POST /api/webhooks/evolution` | Webhook real de Evolution API (`messages.upsert`) | Header `x-webhook-secret` (si `WEBHOOK_SECRET` está definido) | Sí: si Supabase falla, opera en local |
 | `POST /api/webhooks/evolution/test` | Simulador local de webhook (no requiere Evolution real) | No | Sí: idéntico al real |
 | `POST /api/messages/send` | Proxy de envío outbound (frontend → backend → Evolution API) | No | Sí: registra como `"failed"` si no hay Evolution |
@@ -168,7 +171,25 @@ El backend mandará el request real a Evolution API si las variables están conf
 
 > **Nota**: Los ejemplos con `curl` usan `localhost:3000` (API directa). Si accedés desde el frontend en `localhost:5173`, el proxy de Vite redirige automáticamente `/api/*` al backend, por lo que no necesitás preocuparte por CORS.
 
-#### 5. Probar el webhook real con secret (si tenés Evolution configurada)
+#### 5. Leer conversaciones y mensajes persistidos
+Después de simular mensajes entrantes o salientes, podés leer los datos
+persistidos en Supabase a través de los nuevos endpoints de lectura:
+
+```bash
+# Listar todas las conversaciones
+curl http://localhost:3000/api/conversations
+
+# Detalle de una conversación específica (reemplazar <id> con un UUID real)
+curl http://localhost:3000/api/conversations/<id>
+
+# Mensajes de una conversación (paginación opcional: ?page=1&limit=50)
+curl http://localhost:3000/api/conversations/<id>/messages
+```
+
+El endpoint `GET /api/conversations/:id/messages` acepta parámetros de
+paginación: `?page=1&limit=50` (máximo 100 por página).
+
+#### 6. Probar el webhook real con secret (si tenés Evolution configurada)
 ```bash
 curl -X POST http://localhost:3000/api/webhooks/evolution \
   -H "Content-Type: application/json" \
