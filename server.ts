@@ -485,6 +485,33 @@ function startServer() {
         return res.status(500).json({ error: "Failed to fetch conversations" });
       }
 
+      // Enrich each conversation with the direction of its most recent message
+      if (data && data.length > 0) {
+        try {
+          const convIds = data.map(c => c.id);
+          const { data: lastMsgs } = await supabase
+            .from("messages")
+            .select("conversation_id, direction, created_at")
+            .in("conversation_id", convIds)
+            .order("created_at", { ascending: false });
+
+          if (lastMsgs && lastMsgs.length > 0) {
+            const dirMap = new Map<string, string>();
+            for (const msg of lastMsgs) {
+              if (!dirMap.has(msg.conversation_id)) {
+                dirMap.set(msg.conversation_id, msg.direction);
+              }
+            }
+            for (const conv of data) {
+              (conv as any).last_message_direction = dirMap.get(conv.id) || null;
+            }
+          }
+        } catch (innerErr) {
+          console.warn("⚠️ [Conversations] Could not enrich last_message_direction:", innerErr);
+          // Non-blocking: conversations are still returned without this field
+        }
+      }
+
       console.log(`📋 [Conversations] Returned ${data?.length || 0} conversations`);
       return res.json({ data });
     } catch (err: any) {
