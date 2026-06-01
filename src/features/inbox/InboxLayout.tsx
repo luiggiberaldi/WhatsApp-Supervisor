@@ -33,7 +33,19 @@ export default function InboxLayout() {
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'conversations' },
-        (payload) => {
+        async (payload) => {
+          try {
+            const res = await fetch(`/api/conversations/${payload.new.id}`);
+            if (res.ok) {
+              const { data } = await res.json();
+              if (data) {
+                addConversationRealtime(data);
+                return;
+              }
+            }
+          } catch {
+            // network error — fallback to raw shape
+          }
           addConversationRealtime(payload.new);
         }
       )

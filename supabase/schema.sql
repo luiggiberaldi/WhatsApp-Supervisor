@@ -133,4 +133,9 @@ on internal_notes for select to authenticated using (
   )
 );
 
--- Triggers for last_updated etc. can be added here
+-- === Enable Realtime Replication ===
+-- Required for the frontend to receive live updates via Supabase Realtime.
+-- Run these AFTER the tables exist (already applied as part of this schema).
+-- To verify: SELECT * FROM pg_publication_tables WHERE pubname = 'supabase_realtime';
+alter publication supabase_realtime add table messages;
+alter publication supabase_realtime add table conversations;
