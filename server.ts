@@ -12,6 +12,7 @@ import {
   sendTextMessage,
   getConnectionState,
   setWebhookUrl,
+  markRecentOutbound,
 } from "./server/lib/evolution.js";
 import { supabase, supabaseRole } from "./server/lib/supabase.js";
 
@@ -351,6 +352,7 @@ function startServer() {
           evolutionResponse = await sendTextMessage(to, text);
           if (evolutionResponse?.key?.id) {
             databaseMessageId = evolutionResponse.key.id;
+            markRecentOutbound(databaseMessageId);
           }
           usingRealSender = true;
         } catch (evolutionError: any) {

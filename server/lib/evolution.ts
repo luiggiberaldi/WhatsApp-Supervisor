@@ -50,6 +50,19 @@ export function extractMessageTimestamp(payload: any): string {
   return new Date(ms).toISOString();
 }
 
+// Deduplication: track recently sent message IDs to ignore echo webhooks
+const recentOutboundIds = new Set<string>();
+const DEDUP_WINDOW_MS = 5000;
+
+export function markRecentOutbound(messageId: string) {
+  recentOutboundIds.add(messageId);
+  setTimeout(() => recentOutboundIds.delete(messageId), DEDUP_WINDOW_MS);
+}
+
+export function isDuplicateOutbound(messageId: string): boolean {
+  return recentOutboundIds.has(messageId);
+}
+
 // Checks if the incoming webhook contains a supported conversation message event
 export function isSupportedIncomingMessage(payload: any): boolean {
   if (!payload) return false;
@@ -64,9 +77,15 @@ export function isSupportedIncomingMessage(payload: any): boolean {
   const data = payload.data;
   if (!data || !data.key) return false;
 
-  // Filter out outbound events broadcast from our own number to ensure we process real replies
-  const isFromMe = data.key.fromMe === true;
-  return !isFromMe;
+  // Filter out outbound events — Evolution sometimes sends fromMe as 1 (int), not true
+  const isFromMe = data.key.fromMe === true || data.key.fromMe === 1 || data.key.fromMe === "true";
+  if (isFromMe) return false;
+
+  // Deduplication: ignore webhooks for messages sent recently via our own send endpoint
+  const messageId = data.key.id;
+  if (messageId && isDuplicateOutbound(messageId)) return false;
+
+  return true;
 }
 
 // Interface representing our normalized internal message structure
