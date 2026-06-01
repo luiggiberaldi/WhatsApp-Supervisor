@@ -229,3 +229,67 @@ Al implementar endpoints con parámetros UUID:
 - Validar el formato del UUID antes de pasarlo a Supabase/PgREST
 - Usar `.maybeSingle()` en vez de `.single()` para evitar errores PGRST116
 - En endpoints con paginación, acotar `limit` máximo para evitar abusos (se fijó 100)
+
+---
+
+## Fase 7: Deploy en Producción (Render + Vercel + UptimeRobot)
+
+**Fecha**: 2026-05-31
+**Estado**: Completado — archivos de configuración creados. Deploy manual requiere URLs reales.
+
+### Plataformas
+
+| Servicio | Rol | Plan |
+|---|---|---|
+| Render | Backend (Express API + Webhooks) | Free |
+| Vercel | Frontend (React SPA) | Free |
+| UptimeRobot | Keep-alive (ping cada 5 min) | Free |
+
+### Archivos creados
+
+| Archivo | Propósito |
+|---|---|
+| `render.yaml` | Configuración de deploy para Render (build, start, healthcheck, env vars) |
+| `vercel.json` | Rewrites de `/api/*` a Render (placeholder `TU_RENDER_URL`) |
+
+### Archivos modificados
+
+| Archivo | Cambio |
+|---|---|
+| `server.ts` | `PORT` usa `process.env.PORT \|\| 3000`. CORS explícito con `allowedOrigins` incluyendo `process.env.FRONTEND_URL` |
+| `README.md` | Sección "Despliegue en Producción" reescrita para Render + Vercel + UptimeRobot |
+| `vercel.json` | Placeholder cambiado de `TU_RAILWAY_URL` a `TU_RENDER_URL` |
+
+### Archivos eliminados
+
+| Archivo | Razón |
+|---|---|
+| `railway.json` | Reemplazado por `render.yaml` |
+
+### Decisiones técnicas
+
+1. **Render en vez de Railway**: Render ofrece un free tier más generoso para Node.js (512 MB RAM, incluye PostgreSQL si hiciera falta, HTTP healthcheck nativo). Railway free tier tiene límites más restrictivos de build hours.
+
+2. **render.yaml con `sync: false`**: Las variables de entorno sensibles se marcan con `sync: false` para que Render pida el valor manualmente en el dashboard, sin exponerlo en el repositorio.
+
+3. **CORS explícito**: `allowedOrigins` incluye `localhost:5173` (dev), `localhost:3000` (dev) y `process.env.FRONTEND_URL` (producción). Previene que frontends no autorizados consuman la API.
+
+4. **UptimeRobot para cold start**: Render free tier duerme el servicio después de 15 min sin actividad. UptimeRobot hace ping a `/api/health` cada 5 min para mantenerlo activo. Esto da un tiempo de respuesta consistente (< 2s).
+
+5. **vercel.json con placeholder**: `TU_RENDER_URL` se reemplaza manualmente después del primer deploy de Render. No se hardcodean URLs en el código fuente.
+
+6. **Flujo de URLs**:
+   - Render deploy → obtener URL `https://whatsapp-supervisor-api.onrender.com`
+   - Editar `vercel.json` con esa URL → commit → push
+   - Vercel deploy → obtener URL `https://whatsapp-supervisor.vercel.app`
+   - Render: agregar `FRONTEND_URL=https://whatsapp-supervisor.vercel.app`
+
+### Variables de entorno para producción
+
+Ver README.md → "Despliegue en Producción" → "Variables de Entorno para Producción" para tablas completas de Render y Vercel.
+
+### URLs de producción
+
+- Backend (Render): *(pendiente — se genera al hacer deploy)*
+- Frontend (Vercel): *(pendiente — se genera al hacer deploy)*
+- Repositorio: `https://github.com/luiggiberaldi/WhatsApp-Supervisor`

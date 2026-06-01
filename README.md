@@ -117,6 +117,16 @@ WEBHOOK_SECRET="my_secure_webhook_secret"
 - **unread_count persistente**: `PATCH /api/conversations/:id/read` resetea en DB.
 - **Build de producción**: `npm run build` genera frontend + backend listo para deploy.
 
+### Fase 6 — Fix: Contact anidado en Realtime
+- Enriquecimiento de eventos Realtime INSERT via `GET /api/conversations/:id`.
+- Merge en store para preservar `contact` anidado en UPDATE.
+
+### Fase 7 — Deploy en Render + Vercel + UptimeRobot
+- Backend en Render (free plan) con `render.yaml`, healthcheck, CORS explícito.
+- Frontend en Vercel con `vercel.json` rewrites a Render.
+- UptimeRobot ping cada 5 min para evitar cold start de Render.
+- Variables de entorno documentadas para cada plataforma.
+
 ## Endpoints del Backend
 
 | Endpoint | Uso | Auth requerida |
@@ -131,54 +141,97 @@ WEBHOOK_SECRET="my_secure_webhook_secret"
 | `POST /api/webhooks/evolution/test` | Simulador local de webhook | No |
 | `POST /api/messages/send` | Proxy de envío outbound | No |
 
-## Despliegue en Producción
+## Despliegue en Producción (100% Gratis)
 
-### Build
+La aplicación se despliega en tres servicios gratuitos:
+- **Backend (API + Webhooks)**: Render (free tier) — ejecuta `dist/server.cjs`.
+- **Frontend (React SPA)**: Vercel (free tier) — sirve `dist/` con rewrites a Render para `/api/*`.
+- **Keep-alive**: UptimeRobot (free tier) — ping cada 5 min para evitar cold start de Render.
+
+### URLs de producción (ya desplegadas)
+
+| Plataforma | URL | Estado |
+|---|---|---|
+| Backend (Render) | `https://whatsapp-supervisor.onrender.com` | ✅ Operativo — healthcheck responde |
+| Frontend (Vercel) | *(pendiente — deploy manual)* | ⏳ Pendiente |
+| Keep-alive (UptimeRobot) | Ping a `/api/health` cada 5 min | ⏳ Pendiente |
+
+### Variables de Entorno para Producción
+
+#### Configuradas en Render (backend)
+
+| Variable | Valor |
+|---|---|
+| `VITE_SUPABASE_URL` | `https://aymebbzjleckacubncmo.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | *(anon key real)* |
+| `FRONTEND_URL` | ***(completar tras deploy de Vercel)*** — ej: `https://whatsapp-supervisor.vercel.app` |
+| `EVOLUTION_API_URL` | `http://localhost:8080` *(pendiente URL pública)* |
+| `EVOLUTION_API_KEY` | `luigi_supervisor_demo_2026_abc123456789` |
+| `EVOLUTION_INSTANCE_NAME` | `main` |
+| `WEBHOOK_SECRET` | *(secreto seguro)* |
+
+#### Configurar en Vercel (frontend) — antes del deploy
+
+| Variable | Valor |
+|---|---|
+| `VITE_SUPABASE_URL` | `https://aymebbzjleckacubncmo.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | *(anon key real)* |
+
+### Deploy del Frontend en Vercel
+
+`vercel.json` ya tiene la URL real del backend. Solo ejecutar:
 
 ```bash
-npm run build
+npx vercel --prod --yes
 ```
 
-Esto genera:
-- `dist/index.html` + `dist/assets/*` — frontend compilado.
-- `dist/server.cjs` — backend Express compilado.
+Asegurarse de haber configurado antes las variables `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` en el dashboard de Vercel (Project → Settings → Environment Variables).
 
-### Ejecutar
+### Post-deploy — Cerrar ciclo
+
+Una vez que Vercel asigne la URL (ej: `https://whatsapp-supervisor.vercel.app`):
+
+1. Ir a [Render Dashboard](https://dashboard.render.com) → Environment → agregar:
+   ```
+   FRONTEND_URL=https://whatsapp-supervisor.vercel.app
+   ```
+   Render hará redeploy automático con CORS actualizado.
+
+2. Configurar [UptimeRobot](https://uptimerobot.com):
+   - Monitor Type: HTTP(s)
+   - URL: `https://whatsapp-supervisor.onrender.com/api/health`
+   - Interval: Every 5 minutes
+
+### Verificación post-deploy
 
 ```bash
-node dist/server.cjs
+# 1. Healthcheck del backend
+curl https://whatsapp-supervisor.onrender.com/api/health
+# → {"status":"ok","service":"WhatsApp Supervisor backend","version":"1.0.0"}
+
+# 2. Proxy Vercel → Render
+curl https://TU_VERCEL_URL/api/health
+# → mismo resultado (Vercel proxea a Render)
+
+# 3. Abrir frontend en navegador
+# https://TU_VERCEL_URL → debe mostrar Login
+
+# 4. Probar webhook simulado
+curl -X POST https://whatsapp-supervisor.onrender.com/api/webhooks/evolution/test \
+  -H "Content-Type: application/json" \
+  -d '{"phone":"5491122334455","text":"Hola producción!","senderName":"Test"}'
 ```
 
-El servidor Express escucha en `http://0.0.0.0:3000` y sirve:
-- `/api/*` — APIs REST.
-- `/*` — frontend SPA (en producción, cuando `NODE_ENV=production`).
+### Troubleshooting de Deploy
 
-### Variables para Producción
-
-```bash
-NODE_ENV=production
-PORT=3000
-VITE_SUPABASE_URL="..."
-VITE_SUPABASE_ANON_KEY="..."
-SUPABASE_SERVICE_ROLE_KEY="..."
-EVOLUTION_API_URL="..."
-EVOLUTION_API_KEY="..."
-WEBHOOK_SECRET="..."
-```
-
-### Verificar deploy
-
-```bash
-# Healthcheck
-curl https://tu-dominio.com/api/health
-
-# Estado de configuración
-curl https://tu-dominio.com/api/evolution/status
-```
-
-### Healthcheck (para orquestadores)
-
-Usar `GET /api/health` — responde con `{ "status": "ok" }` y HTTP 200.
+| Problema | Causa | Solución |
+|---|---|---|
+| CORS error en consola del browser | `FRONTEND_URL` en Render no coincide con URL de Vercel | Verificar sin trailing slash |
+| `/api/*` devuelve 404 en Vercel | vercel.json tiene URL incorrecta | Verificar `vercel.json` → destination |
+| Login falla en producción | `VITE_SUPABASE_ANON_KEY` no está en Vercel | Agregar variable en Vercel |
+| Servidor tarda 30-60s en responder | UptimeRobot no configurado | Configurar ping cada 5 min en UptimeRobot |
+| Evolution no envía mensajes | `EVOLUTION_API_URL` apunta a `localhost` | Pendiente URL pública de Evolution |
+| Render falla healthcheck | Crash silencioso en startup | Verificar logs de Render |
 
 ## Desarrollo de la Integración
 
