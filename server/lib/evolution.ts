@@ -109,17 +109,10 @@ export function normalizeEvolutionWebhook(payload: any): NormalizedMessage | nul
 
 // Constructs standard payload structure acceptable by Evolution API for outbound messages
 export function buildOutboundPayload(to: string, text: string) {
-  // Clean phone to numeric-only string format if needed or keep structure
   const cleanNumber = to.replace(/[^0-9]/g, "");
   return {
     number: cleanNumber,
-    options: {
-      delay: 0,
-      presence: "composing",
-    },
-    textMessage: {
-      text: text,
-    },
+    text: text,
   };
 }
 

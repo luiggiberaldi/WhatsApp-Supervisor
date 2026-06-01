@@ -50,6 +50,8 @@ interface AppState {
   markConversationRead: (id: string) => Promise<void>;
 }
 
+const API_BASE = '';
+
 export const useAppStore = create<AppState>((set, get) => ({
   // Auth — start null, initAuth will hydrate
   currentUser: null,
@@ -159,7 +161,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
     if (id) {
       try {
-        await fetch(`/api/conversations/${id}/read`, { method: 'PATCH' });
+        await fetch(`${API_BASE}/api/conversations/${id}/read`, { method: 'PATCH' });
       } catch {
         // Local reset already done, don't block UX
       }
@@ -207,7 +209,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   fetchConversations: async () => {
     set({ isLoadingConversations: true });
     try {
-      const res = await fetch('/api/conversations');
+      const res = await fetch(`${API_BASE}/api/conversations`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       const raw = json.data || [];
@@ -229,7 +231,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   fetchMessages: async (conversationId) => {
     set({ isLoadingMessages: true });
     try {
-      const res = await fetch(`/api/conversations/${conversationId}/messages`);
+      const res = await fetch(`${API_BASE}/api/conversations/${conversationId}/messages`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       set({ messages: json.data || [], isLoadingMessages: false });
@@ -246,7 +248,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     set({ isSendingMessage: true, sendError: null });
     try {
-      const res = await fetch('/api/messages/send', {
+      const res = await fetch(`${API_BASE}/api/messages/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ conversationId, to, text }),
