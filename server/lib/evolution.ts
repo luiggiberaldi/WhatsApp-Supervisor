@@ -137,7 +137,7 @@ export async function sendTextMessage(to: string, text: string): Promise<any> {
   const url = `${baseUrl}/message/sendText/${instanceName}`;
   const payload = buildOutboundPayload(to, text);
 
-  console.log(`📡 [Evolution Outbound Client] Sending POST to ${url}`);
+  console.log(`[Evolution Outbound] POST ${url}`);
 
   const response = await fetch(url, {
     method: "POST",
@@ -150,11 +150,79 @@ export async function sendTextMessage(to: string, text: string): Promise<any> {
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error(`❌ [Evolution Outbound Client] Failed with status ${response.status}:`, errorText);
+    console.error(`[Evolution Outbound] Failed ${response.status}:`, errorText);
     throw new Error(`Evolution API send failed (${response.status}): ${errorText}`);
   }
 
   const responseData = await response.json();
-  console.log("✅ [Evolution Outbound Client] Message sent successfully:", responseData);
+  console.log("[Evolution Outbound] Sent successfully");
   return responseData;
+}
+
+// Queries the real-time connection state of the Evolution instance
+export async function getConnectionState(): Promise<any> {
+  const evolutionUrl = process.env.EVOLUTION_API_URL;
+  const apiKey = process.env.EVOLUTION_API_KEY;
+  const instanceName = process.env.EVOLUTION_INSTANCE_NAME || "main";
+
+  if (!evolutionUrl || !apiKey) {
+    return { state: "unconfigured", error: "Missing EVOLUTION_API_URL or EVOLUTION_API_KEY" };
+  }
+
+  const baseUrl = evolutionUrl.replace(/\/$/, "");
+  const url = `${baseUrl}/instance/connectionState/${instanceName}`;
+
+  try {
+    const response = await fetch(url, {
+      headers: { "apikey": apiKey },
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      return { state: "error", status: response.status, detail: text };
+    }
+    return await response.json();
+  } catch (err: any) {
+    return { state: "unreachable", error: err.message };
+  }
+}
+
+// Configures the webhook URL that Evolution will call for this instance
+export async function setWebhookUrl(webhookUrl: string, webhookSecret?: string): Promise<any> {
+  const evolutionUrl = process.env.EVOLUTION_API_URL;
+  const apiKey = process.env.EVOLUTION_API_KEY;
+  const instanceName = process.env.EVOLUTION_INSTANCE_NAME || "main";
+
+  if (!evolutionUrl || !apiKey) {
+    return { success: false, error: "Missing EVOLUTION_API_URL or EVOLUTION_API_KEY" };
+  }
+
+  const baseUrl = evolutionUrl.replace(/\/$/, "");
+  const url = `${baseUrl}/webhook/set/${instanceName}`;
+
+  const body: any = {
+    url: webhookUrl,
+    enabled: true,
+    webhookByEvents: false,
+    webhookBase64: false,
+    events: ["messages.upsert"],
+  };
+
+  if (webhookSecret) {
+    body.webhookHeaders = { "x-webhook-secret": webhookSecret };
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": apiKey,
+      },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json();
+    return { success: response.ok, status: response.status, data };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
 }

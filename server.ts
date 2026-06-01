@@ -9,7 +9,9 @@ dotenv.config();
 import { 
   isSupportedIncomingMessage, 
   normalizeEvolutionWebhook, 
-  sendTextMessage 
+  sendTextMessage,
+  getConnectionState,
+  setWebhookUrl,
 } from "./server/lib/evolution.js";
 import { supabase, supabaseRole } from "./server/lib/supabase.js";
 
@@ -657,6 +659,10 @@ function startServer() {
     const persistenceMode = !supabasePresent ? "local_fallback (no credentials)"
                          : supabaseAuthFailures > 0 ? `local_fallback (${supabaseAuthFailures} auth failure(s))`
                          : "active";
+    const localWebhookUrl = `http://localhost:${PORT}/api/webhooks/evolution`;
+    const publicWebhookUrl = process.env.RENDER_EXTERNAL_URL
+      ? `${process.env.RENDER_EXTERNAL_URL}/api/webhooks/evolution`
+      : "(not deployed — use local URL or tunnel)";
 
     res.json({
       environment: {
@@ -670,12 +676,36 @@ function startServer() {
         persistenceMode,
         supabaseRole,
       },
+      webhook: {
+        localUrl: localWebhookUrl,
+        publicUrl: publicWebhookUrl,
+        configuredSecret: isSecretSet,
+      },
       telemetry: {
         totalWebhooksProcessed: webhookReceiptCount,
         lastWebhookReceivedAt: lastWebhookReceivedAt || "never",
         lastWebhookPayload: lastWebhookPayload || null,
       }
     });
+  });
+
+  // === Evolution Instance Connection State (real) ===
+  app.get("/api/evolution/connection-state", async (req: Request, res: Response) => {
+    const state = await getConnectionState();
+    res.json(state);
+  });
+
+  // === Configure Evolution Webhook URL ===
+  app.post("/api/evolution/set-webhook", async (req: Request, res: Response) => {
+    const { url, secret } = req.body;
+    if (!url) {
+      return res.status(400).json({ error: "Required field 'url' is missing." });
+    }
+    const result = await setWebhookUrl(url, secret || process.env.WEBHOOK_SECRET);
+    if (!result.success) {
+      return res.status(500).json({ error: result.error, detail: result });
+    }
+    res.json(result);
   });
 
   // === Static Production Server (dev frontend is served by Vite separately) ===
